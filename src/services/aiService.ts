@@ -1,73 +1,89 @@
-
 export interface CodeBundle {
   html: string;
   css: string;
   js: string;
 }
 
-const API_KEY_STORAGE_KEY = 'pollinationApiKey';
-// IMPORTANT: Replace with the actual Pollination AI API endpoint
-const POLLINATION_API_URL = 'https://api.pollinations.ai/v1/chat/completions'; // This is a hypothetical URL
+const POLLINATION_TEXT_API_URL_BASE = 'https://text.pollinations.ai';
 
-async function callPollinationApi(messages: Array<{role: string, content: string}>, instruction?: string): Promise<string> {
-  const apiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-  if (!apiKey) {
-    throw new Error("Pollination AI API key not found. Please set it in the application.");
+// This function will now handle GET requests to the text.pollinations.ai endpoint
+async function callPollinationTextApi(
+  userPromptContent: string,
+  systemPromptContent?: string,
+  expectJsonOutput: boolean = false
+): Promise<string> {
+  const encodedUserPrompt = encodeURIComponent(userPromptContent);
+  let apiUrl = `${POLLINATION_TEXT_API_URL_BASE}/${encodedUserPrompt}?model=openai-large`;
+
+  if (systemPromptContent) {
+    apiUrl += `&system=${encodeURIComponent(systemPromptContent)}`;
   }
+  if (expectJsonOutput) {
+    apiUrl += `&json=true`;
+  }
+  // Add other parameters like seed if needed, e.g., &seed=42
+  // apiUrl += `&private=true`; // If you want to keep generations private
 
-  const systemMessage = instruction ? instruction : "You are an expert web developer. Provide complete, concise, and accurate code or plans as requested. For code generation, always provide HTML, CSS, and JavaScript. If a language is not needed, provide an empty string for it.";
-  
-  const body = {
-    model: "pollinations/chat-model-alpha", // Placeholder model, adjust as needed
-    messages: [{ role: "system", content: systemMessage }, ...messages],
-    // Add any other parameters required by Pollination AI, like temperature, max_tokens etc.
-  };
+  console.log(`Calling Pollination Text API: ${apiUrl}`);
 
-  console.log("Sending to Pollination AI:", JSON.stringify(body, null, 2));
-
-  const response = await fetch(POLLINATION_API_URL, {
-    method: 'POST',
+  const response = await fetch(apiUrl, {
+    method: 'GET',
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
+      // No Authorization header needed for this endpoint
+      'Accept': expectJsonOutput ? 'application/json' : 'text/plain',
     },
-    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error("Pollination API Error:", response.status, errorBody);
-    throw new Error(`Pollination AI API request failed with status ${response.status}: ${errorBody}`);
+    console.error("Pollination Text API Error:", response.status, errorBody);
+    throw new Error(`Pollination AI Text API request failed with status ${response.status}: ${errorBody}`);
   }
 
-  const data = await response.json();
-  console.log("Received from Pollination AI:", data);
+  const responseText = await response.text();
+  console.log("Received from Pollination Text API:", responseText);
 
-  // Adjust this based on the actual API response structure
-  // Assuming the response has a structure like: { choices: [{ message: { content: "..." } }] }
-  if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
-    return data.choices[0].message.content;
-  } else {
-    console.error("Unexpected API response structure:", data);
-    throw new Error("Unexpected response structure from Pollination AI API.");
+  // If json=true was used, Pollination AI might return a string that is itself a JSON string.
+  // e.g., "\"{\\\"html\\\": \\\"...\\\"}\"" which needs double parsing,
+  // or just "{ \"html\": \"...\" }" which needs single parsing.
+  // Let's try to parse it directly if we expect JSON.
+  if (expectJsonOutput) {
+    try {
+      // First, attempt to parse the text as if it's directly a JSON object string
+      const parsedJson = JSON.parse(responseText);
+      // If it's a string that contains JSON (e.g. from json=true), parse it again.
+      if (typeof parsedJson === 'string') {
+        return parsedJson; // This string should be the JSON content for CodeBundle
+      }
+      // If it was already an object (though API docs say json=true gives a string)
+      return JSON.stringify(parsedJson); // Should not happen based on docs, but as fallback
+    } catch (e) {
+      console.warn("Failed to parse responseText as JSON, returning raw text. Error:", e);
+      // Fallback to returning the raw text if primary parsing fails.
+      // parseCodeBundleResponse will handle further attempts.
+      return responseText;
+    }
   }
+  
+  return responseText;
 }
 
 export const generatePlan = async (prompt: string): Promise<string> => {
-  console.log(`AI: Generating plan for prompt: "${prompt}" using Pollination AI`);
+  console.log(`AI: Generating plan for prompt: "${prompt}" using Pollination Text AI`);
   
-  const messages = [{ role: "user", content: `Generate a detailed step-by-step plan to create a website based on the following idea: "${prompt}". The plan should cover layout, key components, color scheme, and interactivity. Be specific.` }];
+  const userPrompt = `Generate a detailed step-by-step plan to create a website based on the following idea: "${prompt}". The plan should cover layout, key components, color scheme, and interactivity. Be specific.`;
+  const systemPrompt = "You are an expert project planner. Generate a concise and actionable plan as plain text.";
   
-  const plan = await callPollinationApi(messages, "You are an expert project planner. Generate a concise and actionable plan.");
-  console.log("AI: Plan generated via Pollination AI.");
+  // Plan is expected as plain text, not JSON
+  const plan = await callPollinationTextApi(userPrompt, systemPrompt, false);
+  console.log("AI: Plan generated via Pollination Text AI.");
   return plan;
 };
 
-// Helper to parse structured code output
 const parseCodeBundleResponse = (responseText: string): CodeBundle => {
   try {
-    // Attempt to parse as JSON if the AI returns a JSON string
-    // e.g., {"html": "...", "css": "...", "js": "..."}
+    // ResponseText from callPollinationTextApi (when expectJsonOutput=true)
+    // should already be a string ready for JSON.parse to get the object.
     const parsed = JSON.parse(responseText);
     if (parsed.html !== undefined && parsed.css !== undefined && parsed.js !== undefined) {
       return {
@@ -77,8 +93,8 @@ const parseCodeBundleResponse = (responseText: string): CodeBundle => {
       };
     }
   } catch (e) {
-    // If not JSON, try to extract from markdown code blocks
-    console.log("Response is not JSON, trying markdown extraction.");
+    console.log("Response is not a direct JSON object string, trying markdown extraction. Error:", e);
+    // Fallback to markdown extraction if JSON parsing fails (e.g., AI didn't follow JSON instruction)
   }
 
   // Fallback: try to find sections like ```html ... ```
@@ -95,17 +111,19 @@ const parseCodeBundleResponse = (responseText: string): CodeBundle => {
 
 
 export const generateCode = async (plan: string): Promise<CodeBundle> => {
-  console.log(`AI: Generating code for plan: "${plan.substring(0, 100)}..." using Pollination AI`);
+  console.log(`AI: Generating code for plan: "${plan.substring(0, 100)}..." using Pollination Text AI`);
   
-  const messages = [{ role: "user", content: `Based on the following plan, generate the complete HTML, CSS, and JavaScript code for a functional single-page website.
-  Ensure the code is well-structured and works together.
-  Output the HTML, CSS, and JavaScript in separate, clearly marked sections or as a JSON object with keys "html", "css", and "js".
+  const userPrompt = `Based on the following plan, generate the complete HTML, CSS, and JavaScript code for a functional single-page website.
+Ensure the code is well-structured and works together.
+Output ONLY a JSON object string with keys "html", "css", and "js".
 
-  Plan:
-  ${plan}` }];
+Plan:
+${plan}`;
+  const systemPrompt = `You are a senior web developer. Generate complete, working HTML, CSS, and JavaScript code based on the provided plan. IMPORTANT: Your entire response must be ONLY a single JSON object string with three keys: "html", "css", and "js". Do not include any other text, explanations, or markdown formatting around the JSON object. Example: {"html": "...", "css": "...", "js": "..."}`;
   
-  const rawCodeResponse = await callPollinationApi(messages, "You are a senior web developer. Generate complete, working HTML, CSS, and JavaScript code based on the provided plan. Structure your response clearly, preferably as a JSON object string with 'html', 'css', and 'js' keys, or using markdown code blocks for each language.");
-  console.log("AI: Raw code response received from Pollination AI.");
+  // Expecting a JSON string response
+  const rawCodeResponse = await callPollinationTextApi(userPrompt, systemPrompt, true);
+  console.log("AI: Raw code response received from Pollination Text AI.");
   
   return parseCodeBundleResponse(rawCodeResponse);
 };
@@ -114,30 +132,32 @@ export const editCode = async (
   currentCode: CodeBundle,
   editRequest: string
 ): Promise<CodeBundle> => {
-  console.log(`AI: Editing code with request: "${editRequest}" using Pollination AI`);
+  console.log(`AI: Editing code with request: "${editRequest}" using Pollination Text AI`);
   
-  const messages = [{ role: "user", content: `I have the following HTML, CSS, and JavaScript code.
-  HTML:
-  \`\`\`html
-  ${currentCode.html}
-  \`\`\`
+  const userPrompt = `I have the following HTML, CSS, and JavaScript code.
+HTML:
+\`\`\`html
+${currentCode.html}
+\`\`\`
 
-  CSS:
-  \`\`\`css
-  ${currentCode.css}
-  \`\`\`
+CSS:
+\`\`\`css
+${currentCode.css}
+\`\`\`
 
-  JavaScript:
-  \`\`\`javascript
-  ${currentCode.js}
-  \`\`\`
+JavaScript:
+\`\`\`javascript
+${currentCode.js}
+\`\`\`
 
-  Please apply the following edit: "${editRequest}".
-  Provide the complete updated HTML, CSS, and JavaScript code. Structure your response clearly, preferably as a JSON object string with 'html', 'css', and 'js' keys, or using markdown code blocks for each language.`
-  }];
+Please apply the following edit: "${editRequest}".
+Provide ONLY the complete updated HTML, CSS, and JavaScript code as a JSON object string with keys "html", "css", and "js".`;
   
-  const rawEditedCodeResponse = await callPollinationApi(messages, "You are a senior web developer. Modify the provided HTML, CSS, and JavaScript code according to the user's request. Return the complete, updated code. Structure your response clearly, preferably as a JSON object string with 'html', 'css', and 'js' keys, or using markdown code blocks for each language.");
-  console.log("AI: Raw edited code response received from Pollination AI.");
+  const systemPrompt = `You are a senior web developer. Modify the provided HTML, CSS, and JavaScript code according to the user's request. IMPORTANT: Return ONLY the complete, updated code as a single JSON object string with three keys: "html", "css", and "js". Do not include any other text, explanations, or markdown formatting around the JSON object.`;
+  
+  // Expecting a JSON string response
+  const rawEditedCodeResponse = await callPollinationTextApi(userPrompt, systemPrompt, true);
+  console.log("AI: Raw edited code response received from Pollination Text AI.");
 
   return parseCodeBundleResponse(rawEditedCodeResponse);
 };

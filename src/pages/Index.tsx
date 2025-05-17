@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import CodeEditor from '@/components/CodeEditor';
 import Preview from '@/components/Preview';
 import Logo from '@/components/Logo';
-import ApiKeyManager from '@/components/ApiKeyManager'; // Import the new component
+// import ApiKeyManager from '@/components/ApiKeyManager'; // Removed
 import { generatePlan, generateCode, editCode, CodeBundle } from '@/services/aiService';
 import { Loader2, Sparkles, Edit3 } from 'lucide-react';
 
@@ -39,11 +40,11 @@ const Index = () => {
       toast({ title: "Oops!", description: "Please enter your website idea.", variant: "destructive" });
       return;
     }
-    // Check for API key before proceeding
-    if (!localStorage.getItem('pollinationApiKey')) {
-        toast({ title: "API Key Missing", description: "Please enter your Pollination AI API key first.", variant: "destructive" });
-        return;
-    }
+    // API Key check removed
+    // if (!localStorage.getItem('pollinationApiKey')) {
+    //     toast({ title: "API Key Missing", description: "Please enter your Pollination AI API key first.", variant: "destructive" });
+    //     return;
+    // }
     setIsLoading(true);
     try {
       setCurrentStep("Generating plan with Pollination AI...");
@@ -76,11 +77,11 @@ const Index = () => {
         toast({ title: "Nothing to edit!", description: "Please generate a website first.", variant: "destructive" });
         return;
     }
-    // Check for API key
-    if (!localStorage.getItem('pollinationApiKey')) {
-        toast({ title: "API Key Missing", description: "Please enter your Pollination AI API key first.", variant: "destructive" });
-        return;
-    }
+    // API Key check removed
+    // if (!localStorage.getItem('pollinationApiKey')) {
+    //     toast({ title: "API Key Missing", description: "Please enter your Pollination AI API key first.", variant: "destructive" });
+    //     return;
+    // }
     setIsLoading(true);
     try {
       setCurrentStep("Applying edits with Pollination AI...");
@@ -114,8 +115,8 @@ const Index = () => {
         )}
       </header>
 
-      {/* API Key Manager Section */}
-      <ApiKeyManager />
+      {/* API Key Manager Section Removed */}
+      {/* <ApiKeyManager /> */}
 
       {/* Main Prompt Section */}
       <section className="mb-6 p-6 bg-secondary rounded-lg shadow-lg">
