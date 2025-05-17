@@ -1,12 +1,176 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+
+import React, { useState, useEffect } from 'react';
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
+import CodeEditor from '@/components/CodeEditor';
+import Preview from '@/components/Preview';
+import Logo from '@/components/Logo';
+import { generatePlan, generateCode, editCode, CodeBundle } from '@/services/aiService';
+import { Loader2, Sparkles, Edit3 } from 'lucide-react';
 
 const Index = () => {
+  const [initialPrompt, setInitialPrompt] = useState<string>('');
+  const [editPrompt, setEditPrompt] = useState<string>('');
+  const [htmlCode, setHtmlCode] = useState<string>('');
+  const [cssCode, setCssCode] = useState<string>('');
+  const [jsCode, setJsCode] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [currentStep, setCurrentStep] = useState<string>(''); // For user feedback
+
+  // Debounced preview update
+  const [debouncedHtml, setDebouncedHtml] = useState('');
+  const [debouncedCss, setDebouncedCss] = useState('');
+  const [debouncedJs, setDebouncedJs] = useState('');
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedHtml(htmlCode);
+      setDebouncedCss(cssCode);
+      setDebouncedJs(jsCode);
+    }, 500); // 500ms debounce
+    return () => clearTimeout(handler);
+  }, [htmlCode, cssCode, jsCode]);
+
+
+  const handleGenerateWebsite = async () => {
+    if (!initialPrompt.trim()) {
+      toast({ title: "Oops!", description: "Please enter your website idea.", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      setCurrentStep("Generating plan...");
+      toast({ title: "Working on it...", description: "Generating a plan for your website." });
+      const plan = await generatePlan(initialPrompt);
+      
+      setCurrentStep("Generating code...");
+      toast({ title: "Almost there...", description: "Generating HTML, CSS, and JavaScript." });
+      const code = await generateCode(plan);
+      
+      setHtmlCode(code.html);
+      setCssCode(code.css);
+      setJsCode(code.js);
+      toast({ title: "Success!", description: "Your website code has been generated.", variant: "default" });
+    } catch (error) {
+      console.error("Error generating website:", error);
+      toast({ title: "Error", description: "Failed to generate website. Check console for details.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+      setCurrentStep('');
+    }
+  };
+
+  const handleEditWebsite = async () => {
+    if (!editPrompt.trim()) {
+      toast({ title: "Oops!", description: "Please describe the edit you want to make.", variant: "destructive" });
+      return;
+    }
+    if (!htmlCode && !cssCode && !jsCode) {
+        toast({ title: "Nothing to edit!", description: "Please generate a website first.", variant: "destructive" });
+        return;
+    }
+    setIsLoading(true);
+    try {
+      setCurrentStep("Applying edits...");
+      toast({ title: "Working on it...", description: "Applying your requested edits." });
+      const currentCode: CodeBundle = { html: htmlCode, css: cssCode, js: jsCode };
+      const updatedCode = await editCode(currentCode, editPrompt);
+      
+      setHtmlCode(updatedCode.html);
+      setCssCode(updatedCode.css);
+      setJsCode(updatedCode.js);
+      setEditPrompt(''); // Clear edit prompt after submission
+      toast({ title: "Success!", description: "Your website has been updated.", variant: "default" });
+    } catch (error) {
+      console.error("Error editing website:", error);
+      toast({ title: "Error", description: "Failed to edit website. Check console for details.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+      setCurrentStep('');
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen flex flex-col p-4 md:p-8 bg-background text-foreground">
+      <header className="mb-6 flex flex-col sm:flex-row justify-between items-center">
+        <Logo size="text-4xl" />
+        {isLoading && currentStep && (
+          <div className="flex items-center text-sm text-muted-foreground mt-2 sm:mt-0">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {currentStep}
+          </div>
+        )}
+      </header>
+
+      {/* Main Prompt Section */}
+      <section className="mb-6 p-6 bg-secondary rounded-lg shadow-lg">
+        <h2 className="text-2xl font-semibold mb-3 text-primary">1. Describe Your Website Idea</h2>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Textarea
+            placeholder='e.g., "A portfolio site for a photographer with a minimalist design and a gallery page."'
+            value={initialPrompt}
+            onChange={(e) => setInitialPrompt(e.target.value)}
+            className="flex-grow min-h-[80px] bg-input border-border text-foreground placeholder:text-muted-foreground"
+            disabled={isLoading}
+          />
+          <Button onClick={handleGenerateWebsite} disabled={isLoading || !initialPrompt.trim()} className="sm:self-end">
+            {isLoading && !currentStep.includes("Applying edits") ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+            Generate Website
+          </Button>
+        </div>
+      </section>
+
+      {/* Code Editors and Preview Section */}
+      <section className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="lg:col-span-1 flex flex-col gap-4">
+          <h2 className="text-xl font-semibold text-primary">Code Editors</h2>
+          <div className="grid grid-rows-3 gap-4 flex-grow" style={{ minHeight: '600px' }}>
+            <div className="row-span-1 flex flex-col">
+              <label htmlFor="html-editor" className="mb-1 text-sm font-medium text-muted-foreground">HTML</label>
+              <CodeEditor language="html" value={htmlCode} onValueChange={setHtmlCode} placeholder="HTML code will appear here..." />
+            </div>
+            <div className="row-span-1 flex flex-col">
+              <label htmlFor="css-editor" className="mb-1 text-sm font-medium text-muted-foreground">CSS</label>
+              <CodeEditor language="css" value={cssCode} onValueChange={setCssCode} placeholder="CSS code will appear here..." />
+            </div>
+            <div className="row-span-1 flex flex-col">
+              <label htmlFor="js-editor" className="mb-1 text-sm font-medium text-muted-foreground">JavaScript</label>
+              <CodeEditor language="javascript" value={jsCode} onValueChange={setJsCode} placeholder="JavaScript code will appear here..." />
+            </div>
+          </div>
+        </div>
+        <div className="lg:col-span-1 flex flex-col">
+          <h2 className="text-xl font-semibold text-primary mb-4">Live Preview</h2>
+          <div className="flex-grow min-h-[400px] lg:min-h-[600px]"> {/* Ensure preview has enough height */}
+            <Preview html={debouncedHtml} css={debouncedCss} js={debouncedJs} />
+          </div>
+        </div>
+      </section>
+
+      {/* Edit Prompt Section */}
+      {(htmlCode || cssCode || jsCode) && (
+        <section className="mt-auto p-6 bg-secondary rounded-lg shadow-lg">
+          <h2 className="text-2xl font-semibold mb-3 text-primary">2. Request Edits</h2>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Textarea
+              placeholder='e.g., "Change the background color to lightgray and make the heading text larger."'
+              value={editPrompt}
+              onChange={(e) => setEditPrompt(e.target.value)}
+              className="flex-grow min-h-[80px] bg-input border-border text-foreground placeholder:text-muted-foreground"
+              disabled={isLoading}
+            />
+            <Button onClick={handleEditWebsite} disabled={isLoading || !editPrompt.trim()} className="sm:self-end">
+              {isLoading && currentStep.includes("Applying edits") ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Edit3 className="mr-2 h-4 w-4" />}
+              Apply Edits
+            </Button>
+          </div>
+        </section>
+      )}
+       <footer className="text-center mt-8 text-sm text-muted-foreground">
+        <p>Powered by Lovable. Current Date: {new Date().toLocaleDateString()}</p>
+      </footer>
     </div>
   );
 };
